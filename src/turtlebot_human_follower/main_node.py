@@ -65,6 +65,11 @@ class HumanFollowerNode:
         self.max_lost_frames = 15  # Unlock after this many frames
         self.iou_threshold = 0.3  # IoU threshold for tracking same person
         
+        # Temporal filtering for smooth motion (multi-frame averaging)
+        from collections import deque
+        self.tracking_point_buffer = deque(maxlen=5)  # Last 5 tracking points
+        self.distance_buffer_temporal = deque(maxlen=5)  # Last 5 distance readings
+        
         rospy.loginfo("✓ System ready! Raise RIGHT hand to start, LEFT to stop.")
         
     def load_parameters(self):
@@ -342,7 +347,18 @@ class HumanFollowerNode:
             return
         
         rospy.logdebug(f"Tracking using: {landmark_name}")
-        hip_x, hip_y = tracking_point  # Keep variable name for compatibility
+        
+        # === TEMPORAL FILTERING: Smooth tracking point across frames ===
+        # Add current tracking point to buffer
+        self.tracking_point_buffer.append(tracking_point)
+        
+        # Calculate smoothed tracking point (average of last N frames)
+        if len(self.tracking_point_buffer) >= 3:  # Need at least 3 frames
+            smoothed_x = int(np.mean([pt[0] for pt in self.tracking_point_buffer]))
+            smoothed_y = int(np.mean([pt[1] for pt in self.tracking_point_buffer]))
+            hip_x, hip_y = smoothed_x, smoothed_y
+        else:
+            hip_x, hip_y = tracking_point  # Use raw value if not enough history
         
         # CRITICAL: Scale coordinates back to original resolution for depth lookup
         # The frame is downscaled to 0.4, but depth image is full resolution
@@ -357,9 +373,27 @@ class HumanFollowerNode:
             # Check if coordinates are within bounds
             if not (0 <= depth_x < depth_w and 0 <= depth_y < depth_h):
                 rospy.logwarn(f"Coordinates OUT OF BOUNDS! depth_x={depth_x}, depth_y={depth_y}, depth size={depth_w}x{depth_h}")
+            else:
+                # Coordinates are valid, check actual depth value
+                depth_value = self.depth_image[depth_y, depth_x]
+                rospy.loginfo_throttle(2.0, f"Depth pixel value at ({depth_x}, {depth_y}): {depth_value}")
+        else:
+            rospy.logwarn_throttle(2.0, "Depth image is None!")
         
         # Get distance using scaled coordinates
-        distance = self.depth_processor.get_distance(self.depth_image, depth_x, depth_y)
+        raw_distance = self.depth_processor.get_distance(self.depth_image, depth_x, depth_y)
+        
+        # === TEMPORAL FILTERING: Smooth distance across frames ===
+        if raw_distance is not None:
+            self.distance_buffer_temporal.append(raw_distance)
+            
+            # Calculate smoothed distance (median of last N frames for robustness)
+            if len(self.distance_buffer_temporal) >= 3:
+                distance = float(np.median(list(self.distance_buffer_temporal)))
+            else:
+                distance = raw_distance
+        else:
+            distance = None
         
         # Debug logging with None-safe formatting
         dist_str = f"{distance:.2f}m" if distance is not None else "None"
