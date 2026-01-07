@@ -1,0 +1,47 @@
+## File: config/params.yaml
+
+# Robot Control Parameters
+control:
+  target_distance: 1.5        # Target following distance (meters)
+  stop_distance: 0.6          # Emergency stop distance (meters) - reduced for smoother backing
+  max_linear_speed: 0.22      # Reduced from 0.25 for smoother motion
+  max_angular_speed: 0.5      # Reduced from 0.6 for smoother turns
+  linear_gain: 0.2            # PID gain for linear movement
+  angular_gain: 0.004         # Reduced from 0.005 for smoother turns
+
+# Smoothing parameters (in motion_controller.py)
+  smoothing_alpha: 0.45       # Increased from 0.4 for smoother backward movement
+  deadzone_distance: 0.12     # Slightly tighter for better tracking
+  deadzone_angular: 20        # Increased from 15 for more stable centering
+  
+  # Acceleration limits (prevents jerky starts/stops)
+  max_linear_accel: 0.25      # Reduced from 0.3 for smoother acceleration
+  max_angular_accel: 0.6      # Reduced from 0.8 for smoother turns
+
+
+# Detection Parameters
+detection:
+  yolo_model: "yolov8n.pt"
+  yolo_confidence: 0.5
+  pose_detection_confidence: 0.5
+  pose_tracking_confidence: 0.5
+
+# Camera Topics
+camera:
+  color_topic: "/camera/color/image_raw"
+  depth_topic: "/camera/aligned_depth_to_color/image_raw"
+  
+# Robot Command Topic
+robot:
+  cmd_vel_topic: "/cmd_vel_mux/input/teleop"
+
+# Gesture Thresholds
+gesture:
+  activation_threshold: 0.15   # Hand must be this much above nose (normalized)
+
+# Obstacle Detection
+obstacle_detection:
+  enabled: true
+  min_distance: 0.45     # Reduced from 0.5m for earlier detection
+  scan_width_ratio: 0.7  # Increased from 0.6 to scan wider area
+  scan_height_ratio: 0.5 # Increased from 0.4 to detect smaller/lower obstacles
