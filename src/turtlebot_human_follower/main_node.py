@@ -447,7 +447,8 @@ class HumanFollowerNode:
         
         # === Visualization ===
         self.visualizer.draw_tracking_info(
-            frame, hip_pos, distance, self.is_following, is_safe, self.current_fps
+            frame, hip_pos, distance, self.is_following, is_safe, self.current_fps,
+            has_obstacle, obstacle_distance
         )
         self.visualizer.draw_gesture_hints(frame)
         self.visualizer.show(frame)
