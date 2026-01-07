@@ -7,6 +7,7 @@ Coordinates detection, recognition, perception, and control.
 import rospy
 import cv2
 import time
+import numpy as np  # For temporal filtering
 from sensor_msgs.msg import Image
 from cv_bridge import CvBridge
 
