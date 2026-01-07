@@ -16,13 +16,13 @@ class DepthProcessor:
         self.depth_scale = 0.001  # Convert mm to meters for RealSense
         
         # Temporal filtering (smooths over time)
-        self.distance_history = deque(maxlen=10)  # Keep last 10 measurements
+        self.distance_history = deque(maxlen=7)  # Reduced from 10 for faster response
         
         # Outlier rejection parameters
-        self.max_depth_change = 0.5  # Max allowed change per frame (meters)
+        self.max_depth_change = 0.4  # Reduced from 0.5 for stricter rejection
         self.prev_valid_distance = None
         
-    def get_distance(self, depth_image, x, y, window_size=15):
+    def get_distance(self, depth_image, x, y, window_size=25):
         """
         Get stable, filtered distance at specific pixel coordinates.
         
@@ -52,8 +52,9 @@ class DepthProcessor:
         
         depth_window = depth_image[y_min:y_max, x_min:x_max]
         
-        # Filter out invalid depth values (zeros and very far values)
-        valid_depths = depth_window[(depth_window > 0) & (depth_window < 10000)]
+        # Filter out invalid depth values with stricter range
+        # Min: 300mm (30cm), Max: 5000mm (5m) - filters sensor noise
+        valid_depths = depth_window[(depth_window > 300) & (depth_window < 5000)]
         
         if len(valid_depths) == 0:
             rospy.logdebug("No valid depth readings in window")
@@ -74,13 +75,12 @@ class DepthProcessor:
         # === TEMPORAL FILTERING: Moving average over time ===
         self.distance_history.append(raw_distance)
         
-        if len(self.distance_history) < 3:
+        if len(self.distance_history) < 4:  # Need at least 4 samples
             # Not enough history yet, use raw value
             filtered_distance = raw_distance
         else:
-            # Use weighted moving average (recent values weighted more)
-            weights = np.linspace(0.5, 1.0, len(self.distance_history))
-            filtered_distance = np.average(list(self.distance_history), weights=weights)
+            # Use median of history (very robust to outliers)
+            filtered_distance = float(np.median(list(self.distance_history)))
         
         # Update last valid distance
         self.prev_valid_distance = filtered_distance
