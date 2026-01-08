@@ -121,6 +121,13 @@ class HumanFollowerNode:
             scan_height_ratio=obstacle_height
         ) if obstacle_enabled else None
         
+        # Obstacle avoidance settings
+        self.avoidance_enabled = rospy.get_param('~obstacle_detection/avoidance_enabled', True)
+        self.avoidance_turn_speed = rospy.get_param('~obstacle_detection/avoidance_turn_speed', 0.3)
+        
+        # Person tracking settings
+        self.person_lost_timeout = rospy.get_param('~person_tracking/person_lost_timeout', 20)
+        
         # TASK C: Motion Control
         self.motion_controller = MotionController(
             self.cmd_vel_topic,
@@ -245,7 +252,14 @@ class HumanFollowerNode:
         else:
             # No persons detected at all
             self.person_lost_frames += 1
-            if self.person_lost_frames >= self.max_lost_frames:
+            
+            # Auto-standby: disable following after timeout
+            if self.person_lost_frames >= self.person_lost_timeout:
+                self.locked_person_box = None
+                if self.is_following:
+                    self.is_following = False
+                    rospy.loginfo("⏸️ Person lost - entering STANDBY mode (raise hand to restart)")
+            elif self.person_lost_frames >= self.max_lost_frames:
                 self.locked_person_box = None
         
         # Safety check: No selected person = stop immediately
@@ -403,40 +417,65 @@ class HumanFollowerNode:
         # === TASK B & C: Safety Checks ===
         is_safe = self.safety_manager.check_distance_safety(distance)
         
-        # === Obstacle Detection ===
+        # === Obstacle Detection & Avoidance ===
         has_obstacle = False
         obstacle_distance = None
+        avoidance_direction = 'clear'
         
         if self.obstacle_detector is not None and self.locked_person_box is not None:
             # Get person bounding box to exclude from obstacle detection
             person_bbox = self.locked_person_box.xyxy[0].cpu().numpy()
             
-            # Check for obstacles in path
-            has_obstacle, obstacle_distance, _ = self.obstacle_detector.detect_obstacle(
-                self.depth_image, person_bbox
-            )
+            # Get obstacle avoidance direction
+            if self.avoidance_enabled:
+                avoidance_direction, obstacle_distance = self.obstacle_detector.detect_obstacle_direction(
+                    self.depth_image, person_bbox
+                )
+                has_obstacle = (avoidance_direction != 'clear')
+            else:
+                # Simple detection without avoidance
+                has_obstacle, obstacle_distance, _ = self.obstacle_detector.detect_obstacle(
+                    self.depth_image, person_bbox
+                )
         
         # === TASK C: Motion Control ===
         if self.is_following and distance:
-            # Determine if we can move forward
-            can_move_forward = True
-            
-            if has_obstacle and distance > self.target_dist:
-                # Obstacle ahead and trying to move forward - STOP
-                can_move_forward = False
-                rospy.logwarn_throttle(1.0, f"⚠️ OBSTACLE AHEAD at {obstacle_distance:.2f}m - Stopping")
-            
-            if is_safe and can_move_forward:
-                # Normal following mode - safe distance, no obstacles
-                rospy.loginfo_throttle(1.0, f"FOLLOWING: distance={distance:.2f}m, hip_x={hip_x}")
-                self.motion_controller.follow(distance, hip_x, frame.shape[1])
+            # Apply obstacle avoidance if enabled
+            if self.avoidance_enabled and avoidance_direction != 'clear':
+                if avoidance_direction == 'blocked':
+                    # All paths blocked - stop
+                    rospy.logwarn_throttle(1.0, f"⚠️ ALL PATHS BLOCKED at {obstacle_distance:.2f}m - Stopping")
+                    self.motion_controller.stop()
+                elif avoidance_direction in ['turn_left', 'turn_right']:
+                    # Obstacle detected - navigate around it
+                    turn_direction = "LEFT" if avoidance_direction == 'turn_left' else "RIGHT"
+                    rospy.loginfo_throttle(1.0, f"🔄 AVOIDING OBSTACLE - Turning {turn_direction} (obstacle at {obstacle_distance:.2f}m)")
+                    
+                    # Continue following but add avoidance turn
+                    from geometry_msgs.msg import Twist
+                    twist = Twist()
+                    
+                    # Reduced forward speed while avoiding
+                    if distance > self.target_dist:
+                        twist.linear.x = self.max_linear * 0.5  # Half speed while avoiding
+                    else:
+                        twist.linear.x = 0.0  # Don't move forward if at target distance
+                    
+                    # Apply avoidance turn
+                    if avoidance_direction == 'turn_left':
+                        twist.angular.z = self.avoidance_turn_speed  # Turn left
+                    else:
+                        twist.angular.z = -self.avoidance_turn_speed  # Turn right
+                    
+                    self.motion_controller.cmd_vel_pub.publish(twist)
             elif not is_safe:
                 # Too close - will back up smoothly (ignore obstacles when backing up)
                 rospy.logwarn_throttle(1.0, f"TOO CLOSE: Backing up (distance={distance:.2f}m)")
                 self.motion_controller.follow(distance, hip_x, frame.shape[1])
             else:
-                # Obstacle blocking forward movement
-                self.motion_controller.stop()
+                # Normal following mode - safe distance, no obstacles
+                rospy.loginfo_throttle(1.0, f"FOLLOWING: distance={distance:.2f}m, hip_x={hip_x}")
+                self.motion_controller.follow(distance, hip_x, frame.shape[1])
         else:
             # Stopped mode (gesture off or invalid distance)
             if not self.is_following:

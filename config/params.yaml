@@ -22,7 +22,7 @@ control:
 # Detection Parameters
 detection:
   yolo_model: "yolov8n.pt"
-  yolo_confidence: 0.5
+  yolo_confidence: 0.7
   pose_detection_confidence: 0.5
   pose_tracking_confidence: 0.5
 
@@ -45,3 +45,9 @@ obstacle_detection:
   min_distance: 0.45     # Reduced from 0.5m for earlier detection
   scan_width_ratio: 0.7  # Increased from 0.6 to scan wider area
   scan_height_ratio: 0.5 # Increased from 0.4 to detect smaller/lower obstacles
+  avoidance_enabled: true      # Enable obstacle avoidance navigation
+  avoidance_turn_speed: 0.3    # Angular velocity when avoiding obstacles
+
+# Person Tracking
+person_tracking:
+  person_lost_timeout: 20       # Frames before auto-standby (~3 sec @ 6 FPS)
