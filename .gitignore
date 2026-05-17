@@ -1,0 +1,27 @@
+# ROS
+devel/
+build/
+install/
+log/
+.catkin_workspace
+*.launch.user
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS generated files
+.DS_Store
+Thumbs.db
